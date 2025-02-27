@@ -1,0 +1,183 @@
+name: Build A15 Zuma Pro Kernel + KernelSu
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+    inputs:
+      release_tag:
+        description: 'Release Tag (e.g., v1.0.0)'
+        required: true
+        type: string
+      release_name:
+        description: 'Release Name (e.g., Kernel Release v1.0.0)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Is this a prerelease?'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  build-kernel-a15-zumapro:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 8192
+          temp-reserve-mb: 2048
+          swap-size-mb: 8192
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+
+      - name: Install dependencies
+        run: |
+          sudo apt update -y
+          sudo apt install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+          sudo apt install -y flex bison libssl-dev bc libelf-dev python3
+
+#     - name: Initialize Git Configuration
+#       run: |
+#         git config --global user.name "build"
+#         git config --global user.email "3436378798@qq.com"
+
+      - name: Download and Extract GCC 14.2
+        run: |
+          # Replace with the actual URL of the GCC 14.2 prebuilt for aarch64-linux-gnu
+          GCC_URL="https://ftp.gnu.org/gnu/gcc/gcc-14.2.0/gcc-14.2.0.tar.xz"  # <-- **IMPORTANT:  REPLACE THIS URL**
+          GCC_FILENAME="gcc-14.2.0.tar.xz"
+          GCC_EXTRACT_DIR="gcc-14.2"
+          wget "$GCC_URL" -O "$GCC_FILENAME"
+          mkdir "$GCC_EXTRACT_DIR"
+          tar -xf "$GCC_FILENAME" -C "$GCC_EXTRACT_DIR"
+          echo "GCC_PATH=$(pwd)/$GCC_EXTRACT_DIR/bin" >> $GITHUB_ENV
+          echo "GCC_TOOLCHAIN=$(pwd)/$GCC_EXTRACT_DIR" >> $GITHUB_ENV # Store for possible later usage
+
+      - name: Set Environment Variables
+        run: |
+          echo "CONFIG=android_kernel_google_zumapro" >> $GITHUB_ENV
+          echo "ANYKERNEL_BRANCH=15.0.0-sultan-zumapro" >> $GITHUB_ENV
+          echo "SUSFS_BRANCH=gki-android14-6.1" >> $GITHUB_ENV
+
+          # Crucial: Use the downloaded GCC toolchain
+          echo "PATH=$GCC_PATH:$PATH" >> $GITHUB_ENV
+          echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV # Ensure the prefix is correct
+
+          # Define ARM architecture
+          echo "ARCH=arm64" >> $GITHUB_ENV
+          echo "KCFLAGS=-march=armv8.6-a -O3 --param=min-pagesize=0" >> $GITHUB_ENV  # Optimization and target architecture flags
+          echo "LOCALVERSION=-Sultan-Cabage" >> $GITHUB_ENV
+
+          export PATH=$GCC_PATH:$PATH
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export ARCH=arm64
+          export KCFLAGS="-march=armv8.6-a -O3 --param=min-pagesize=0"
+
+      - name: Clone Dependencies
+        run: |
+          git clone https://github.com/TheWildJames/AnyKernel3.git -b "${{ env.ANYKERNEL_BRANCH }}"
+#         git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "${{ env.SUSFS_BRANCH }}"
+#         git clone https://github.com/TheWildJames/kernel_patches.git
+          git clone https://github.com/joaoldias/android_kernel_google_zumapro "${{ env.CONFIG }}" # Clone directly into the config directory
+          rm -rf /common/android/abi_gki_protected_exports_*
+
+      - name: Add KernelSU
+        run: |
+          cd "${{ env.CONFIG }}"
+          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v1.0.3
+          cd KernelSU/kernel
+          KSU_VERSION=$(( $(git rev-list --count HEAD) + 10200 ))
+          echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV # Export KSUVER for later use
+          sed -i "s/DKSU_VERSION=16/DKSU_VERSION=${KSU_VERSION}/" Makefile
+          cd ../..
+          # Set local version for kernel identification
+          sed -i '/CONFIG_LOCALVERSION=.*/d' ./arch/arm64/configs/zumapro_defconfig
+          echo "CONFIG_LOCALVERSION=\"${{ env.LOCALVERSION }}\"" >> ./arch/arm64/configs/zumapro_defconfig
+
+      - name: Build the Kernel
+        run: |
+          cd "${{ env.CONFIG }}"
+
+          # Add LTO_NONE and any other config options
+          echo "CONFIG_LTO_NONE=y" >> ./arch/arm64/configs/zumapro_defconfig
+          export ARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+
+          # Make defconfig
+          make zumapro_defconfig
+
+          # Build the kernel with specified compiler and flags
+          make -j$(nproc --all) \
+            CC="aarch64-linux-gnu-gcc" \
+            LD="aarch64-linux-gnu-ld.bfd" \
+            AR="aarch64-linux-gnu-ar" \
+            NM="aarch64-linux-gnu-nm" \
+            STRIP="aarch64-linux-gnu-strip" \
+            KCFLAGS="${{ env.KCFLAGS }}"
+
+      - name: Package Artifacts
+        run: |
+          cd "$CONFIG"
+          cp ./out/arch/arm64/boot/Image.lz4 ../AnyKernel3/
+          #cp ./out/arch/arm64/boot/Image ../AnyKernel3/
+          cat ./out/google-devices/zumapro/dts/*.dtb  > ../AnyKernel3/dtb
+          cd ../AnyKernel3
+          ZIP_NAME="Cabage_SUSFS_Sultan_ZumaPro_${{ env.KSUVER }}-${{ github.run_id }}.zip"
+          zip -r9 "../${ZIP_NAME}" ./* # Correct way to zip the contents of the directory
+          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV  #Export for use later
+          echo "ZIP file created: ../${ZIP_NAME}"  # Confirm file creation
+          echo "Contents of the parent directory:"
+          ls -l ..
+          pwd
+
+      - name: Resolve Path
+        id: resolve_path
+        run: |
+          ZIP_PATH="${{ env.ZIP_NAME }}"
+          RESOLVED_PATH=$(realpath "$ZIP_PATH")
+          echo "Resolved path: $RESOLVED_PATH"
+          echo "::set-output name=resolved_path::$RESOLVED_PATH"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-zumapro
+          path: ${{ steps.resolve_path.outputs.resolved_path }}
+          if-no-files-found: warn
+          compression-level: 1
+          overwrite: false
+          include-hidden-files: false
+
+      - name: Debug Upload Release Asset Path
+        run: |
+          echo "Current working directory:"
+          pwd
+          echo "Contents of parent directory:"
+          ls -l ..
+
+      - name: Create Release
+        id: create_release # Assign an ID to the step
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: "JD_KSU_Sultan_ZumaPro_${{ env.KSUVER }}-${{ github.run_id }}" # Dynamic Tag
+          release_name: "JD_KSU_Sultan_ZumaPro Release ${{ env.KSUVER }}"
+          draft: false
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ${{ env.ZIP_NAME }}
+          asset_name: ${{ env.ZIP_NAME }}
+          asset_content_type: application/zip
