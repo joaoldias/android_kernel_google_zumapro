@@ -73,7 +73,7 @@ jobs:
           # Define ARM architecture
           echo "ARCH=arm64" >> $GITHUB_ENV
           echo "KCFLAGS=-march=armv8.6-a -O3 --param=min-pagesize=0" >> $GITHUB_ENV  # Optimization and target architecture flags
-          echo "LOCALVERSION=-Sultan-Cabage" >> $GITHUB_ENV
+          echo "LOCALVERSION=-Sultan-JD" >> $GITHUB_ENV
 
           export PATH=$GCC_PATH:$PATH
           export CROSS_COMPILE=aarch64-linux-gnu-
@@ -129,7 +129,7 @@ jobs:
           #cp ./out/arch/arm64/boot/Image ../AnyKernel3/
           cat ./out/google-devices/zumapro/dts/*.dtb  > ../AnyKernel3/dtb
           cd ../AnyKernel3
-          ZIP_NAME="Cabage_SUSFS_Sultan_ZumaPro_${{ env.KSUVER }}-${{ github.run_id }}.zip"
+          ZIP_NAME="JD_KSU_Sultan_ZumaPro_${{ env.KSUVER }}-${{ github.run_id }}.zip"
           zip -r9 "../${ZIP_NAME}" ./* # Correct way to zip the contents of the directory
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV  #Export for use later
           echo "ZIP file created: ../${ZIP_NAME}"  # Confirm file creation
