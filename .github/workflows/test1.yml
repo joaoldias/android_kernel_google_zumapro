@@ -83,8 +83,8 @@ jobs:
       - name: Clone Dependencies
         run: |
           git clone https://github.com/TheWildJames/AnyKernel3.git -b "${{ env.ANYKERNEL_BRANCH }}"
-#         git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "${{ env.SUSFS_BRANCH }}"
-#         git clone https://github.com/TheWildJames/kernel_patches.git
+          #git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "${{ env.SUSFS_BRANCH }}"
+          #git clone https://github.com/TheWildJames/kernel_patches.git
           git clone https://github.com/joaoldias/android_kernel_google_zumapro "${{ env.CONFIG }}" # Clone directly into the config directory
           rm -rf /common/android/abi_gki_protected_exports_*
 
